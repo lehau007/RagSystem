@@ -1,0 +1,3 @@
+!pip install openai
+!pip install langchain==1.0.1 langchain-community unstructured faiss-cpu
+!pip install sentence-transformers

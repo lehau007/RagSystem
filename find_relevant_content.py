@@ -27,7 +27,7 @@ def load_chunked_docs_json(filepath="DB/chunked_docs.json"):
 def load_vectorstore(hf_token: str):
     # Load environment variables
     
-    model_id = "google/embeddinggemma-300M"
+    model_id = "embedding_model"
     
     model = SentenceTransformer(model_id, use_auth_token=hf_token)
 

@@ -10,33 +10,9 @@ class Chatbot:
             api_key=ossapi_key
         )
         self.RagTool = DocumentRetrieval(hf_token)
-        self.starting_system_prompt = """You are a knowledgeable assistant, you can decide to use tools base on current and history context and access to a document search tool (rag_tool).
+        self.starting_system_prompt = """You are a knowledgeable assistant"""
 
-**When to use the rag_tool:**
-- User asks about specific policies, regulations, or procedures
-- Questions require factual information from documents
-- Requests for exact rules, requirements, or guidelines
-- Queries about specific criteria, conditions, or standards
-- You do not see any information about this in conversation history.
-
-**When NOT to use the rag_tool:**
-- General greetings or casual conversation
-- Questions you can confidently answer from general knowledge
-- Simple clarifications or follow-up questions about previous answers
-- User asks about knowledge which appeared in conversation history.
-
-**Important rules:**
-1. If you use the rag_tool but find no relevant information, clearly state: "I could not find any information about this in the available documents."
-2. Always cite sources when using information from documents (include page numbers)
-3. Be honest about limitations - don't make up information
-4. Use Vietnamese language when the user writes in Vietnamese"""
-
-        self.rag_system_prompt = """Now, you get the information from rag_tool. Go ahead and answer the user.
-**Important rules:**
-1. If no relevant information, clearly state: "I could not find any information about this in the available documents."
-2. Always cite sources when using information from documents (include page numbers)
-3. Be honest about limitations - don't make up information
-4. Use Vietnamese language when the user writes in Vietnamese"""
+        self.rag_system_prompt = """Now, answer"""
 
         self.conversation_history = []
 

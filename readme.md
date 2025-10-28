@@ -5,6 +5,9 @@
   <img src="https://img.shields.io/badge/LLM-Tool%20Use-00A39B?style=for-the-badge" alt="LLM Tool Use">
   <img src="https://img.shields.io/badge/Retrieval-Top--k-FF8C00?style=for-the-badge" alt="Retrieval">
   <img src="https://img.shields.io/badge/Embeddings-Vector-228B22?style=for-the-badge" alt="Embeddings">
+  <a href="https://fastapi.tiangolo.com/">
+    <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
+  </a>
 </p>
 
 Retrieval-Augmented Generation (RAG) workflow from document processing to context retrieval and response generation. The model can decide to use tools when appropriate.
@@ -39,6 +42,7 @@ This setup helps reduce hallucinations and improves answer quality by grounding 
 - Context-aware generation (RAG loop)
 - Tool-use decision making by the model when appropriate
 - Simple configuration via environment variables
+- Create local API for transfering data with other Applications.
 
 ## Architecture
 High-level flow:
@@ -136,4 +140,4 @@ Contributions are welcome! Please:
 - Submit focused pull requests with clear descriptions
 
 ## License
-Add a license file to clarify usage (e.g., MIT, Apache-2.0). If none is present, all rights are reserved by default.
+Apache-2.0

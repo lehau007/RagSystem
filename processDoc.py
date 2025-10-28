@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 """ Load PDF """
-loader = PyPDFLoader("document/QCDT_2025_5445_QD-DHBK.pdf")
+loader = PyPDFLoader("documents/QCDT_2025_5445_QD-DHBK.pdf")
 docs = loader.load()
 print(f"Loaded {len(docs)} pages")
 
-loader2 = PyPDFLoader('document/HUSTs_ACADEMIC_REGULATIONS_2025_Final.pdf')
+loader2 = PyPDFLoader('documents/HUSTs_ACADEMIC_REGULATIONS_2025_Final.pdf')
 docs2 = loader2.load()
 print(f"Loaded {len(docs2)} pages")
 

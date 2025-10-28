@@ -1,4 +1,4 @@
-from chatbot import Chatbot
+from ChatBot import Chatbot
 from dotenv import load_dotenv
 from fastapi import FastAPI
 import uvicorn

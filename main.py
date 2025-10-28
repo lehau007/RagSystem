@@ -1,5 +1,5 @@
 # Import ST
-from chatbot import Chatbot
+from ChatBot import Chatbot
 from dotenv import load_dotenv
 if __name__ == "__main__":
     load_dotenv()

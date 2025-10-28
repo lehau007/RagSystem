@@ -1,4 +1,4 @@
-from find_relevant_content import DocumentRetrieval
+from FindRelevantContent import DocumentRetrieval
 from openai import OpenAI
 import json
 from dotenv import load_dotenv

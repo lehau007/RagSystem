@@ -104,7 +104,7 @@ Tips:
 ## Demo
 
 Here is a conversation demo from the project:
-![Conversation Demo](DemoImg/conversation.png)
+![Conversation Demo](DemoImages/conversation.png)
 
 ## Configuration
 

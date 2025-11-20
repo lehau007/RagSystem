@@ -4,18 +4,18 @@ import re
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
-from dotenv import load_dotenv
+from config.settings import DOCUMENTS_PATH, CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, EMBEDDING_MODEL, HF_TOKEN
+from langchain_community.vectorstores import FAISS
+from langchain_core.embeddings import Embeddings
+from sentence_transformers import SentenceTransformer
 
-load_dotenv()
-
-""" Load PDF """
-loader = PyPDFLoader("documents/QCDT_2025_5445_QD-DHBK.pdf")
-docs = loader.load()
-print(f"Loaded {len(docs)} pages")
-
-loader2 = PyPDFLoader('documents/HUSTs_ACADEMIC_REGULATIONS_2025_Final.pdf')
-docs2 = loader2.load()
-print(f"Loaded {len(docs2)} pages")
+# Load all documents from the documents directory
+docs = []
+for doc_file in os.listdir(DOCUMENTS_PATH):
+    if doc_file.endswith(".pdf"):
+        loader = PyPDFLoader(os.path.join(DOCUMENTS_PATH, doc_file))
+        docs.extend(loader.load())
+print(f"Loaded {len(docs)} pages from {len(os.listdir(DOCUMENTS_PATH))} documents")
 
 
 """" Format text """
@@ -56,25 +56,6 @@ for doc in docs:
     
     full_text += page_content + "\n"
     current_position += page_length + 1  # +1 for the newline
-
-# # Regex pattern for headers
-# header_pattern = re.compile(
-#     r"("
-#     # English patterns
-#     r"CHAPTER\s+\d+|"
-#     r"ARTICLE\s+\d+|"
-#     r"SECTION\s+\d+|"
-#     # Vietnamese patterns
-#     r"CHƯƠNG\s+[IVXLCDM\d]+|"  # Roman numerals or digits
-#     r"MỤC\s+\d+|"
-#     r"ĐIỀU\s+\d+|"
-#     r"PHẦN\s+[IVXLCDM\d]+|"
-#     r"PHỤ\s+LỤC\s+\d*|"
-#     r"CHƯƠNG\s+[A-Z]|"  # CHƯƠNG A, B, C...
-#     r"ĐIỀU\s+[A-Z]"  # Less common but possible
-#     r")",
-#     # re.IGNORECASE
-# )
 
 header_pattern = re.compile(
     r"ABCXYZGHL\s+\d+"
@@ -136,7 +117,7 @@ print(f"Total structured docs: {len(structured_docs)}")
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 chunked_docs = splitter.split_documents(structured_docs)
 
-def save_chunked_docs(chunked_docs, filepath="DB/chunked_docs.json"):
+def save_chunked_docs(chunked_docs, filepath=CHUNKED_DOCS_PATH):
     """Save chunked documents to JSON file"""
     docs_data = []
     for doc in chunked_docs:
@@ -145,7 +126,7 @@ def save_chunked_docs(chunked_docs, filepath="DB/chunked_docs.json"):
             "metadata": doc.metadata
         })
     
-    os.makedirs("DB", exist_ok=True)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(docs_data, f, ensure_ascii=False, indent=2)
     
@@ -158,17 +139,7 @@ print(f"Final chunks: {len(chunked_docs)}")
 
 
 """ Embedding by FAISS """
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
-
-# # Use HuggingFace model for embeddings
-# embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-from sentence_transformers import SentenceTransformer
-
-model_id = "google/embeddinggemma-300M"
-hf_token = os.getenv("HF_TOKEN")
-model = SentenceTransformer(model_id, use_auth_token=hf_token)
+model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=HF_TOKEN)
 # Create a wrapper so it matches LangChain's expected API
 class SentenceTransformerEmbeddings(Embeddings):
     def __init__(self, model):
@@ -186,6 +157,6 @@ vectorstore = FAISS.from_documents(chunked_docs, embedder)
 print("Vector DB created with", vectorstore.index.ntotal, "documents")
 
 # Create DB directory if it doesn't exist
-os.makedirs("DB", exist_ok=True)
-vectorstore.save_local("DB/vector_db")
-print("Vector database saved to DB/vector_db")
+os.makedirs(os.path.dirname(FAISS_INDEX_PATH), exist_ok=True)
+vectorstore.save_local(FAISS_INDEX_PATH)
+print(f"Vector database saved to {FAISS_INDEX_PATH}")

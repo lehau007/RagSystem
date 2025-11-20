@@ -1,14 +1,12 @@
-## Load vector store
-
 import os
-from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 from sentence_transformers import SentenceTransformer
 import json
+from config.settings import CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, EMBEDDING_MODEL
 
 # For JSON format
-def load_chunked_docs_json(filepath="DB/chunked_docs.json"):
+def load_chunked_docs_json(filepath=CHUNKED_DOCS_PATH):
     """Load chunked documents from JSON file"""
     from langchain_core.documents import Document
     
@@ -25,11 +23,7 @@ def load_chunked_docs_json(filepath="DB/chunked_docs.json"):
     return chunked_docs
 
 def load_vectorstore(hf_token: str):
-    # Load environment variables
-    
-    model_id = "embedding_model"
-    
-    model = SentenceTransformer(model_id, use_auth_token=hf_token)
+    model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=hf_token)
 
     # Create the same wrapper class
     class SentenceTransformerEmbeddings(Embeddings):
@@ -45,14 +39,14 @@ def load_vectorstore(hf_token: str):
     embedder = SentenceTransformerEmbeddings(model)
 
     # Load the saved vectorstore
-    vectorstore = FAISS.load_local("DB/vector_db", embedder, allow_dangerous_deserialization=True)
+    vectorstore = FAISS.load_local(FAISS_INDEX_PATH, embedder, allow_dangerous_deserialization=True)
 
     return vectorstore
 
 class DocumentRetrieval:
     def __init__(self, hf_token: str):
         self.vectorstore = load_vectorstore(hf_token)
-        self.chunked_docs = load_chunked_docs_json("DB/chunked_docs.json")
+        self.chunked_docs = load_chunked_docs_json()
     
     def keyword_finding(self, keywords):
         """

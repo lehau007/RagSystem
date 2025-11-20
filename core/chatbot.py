@@ -1,7 +1,7 @@
-from FindRelevantContent import DocumentRetrieval
+from core.retriever import DocumentRetrieval
 from openai import OpenAI
 import json
-from dotenv import load_dotenv
+from config.settings import CHAT_MODEL
 
 class Chatbot:
     def __init__(self, ossapi_key: str, hf_token: str): 
@@ -64,7 +64,7 @@ class Chatbot:
         
         try: 
             completion = self.client.chat.completions.create(
-                model="openai/gpt-oss-20b",
+                model=CHAT_MODEL,
                 messages=messages,
                 tools=[self.rag_tool_description],
                 tool_choice="auto",
@@ -98,7 +98,7 @@ class Chatbot:
                 })
                 
                 final_completion = self.client.chat.completions.create(
-                    model="openai/gpt-oss-20b",
+                    model=CHAT_MODEL,
                     messages=messages,
                     temperature=0.7,
                     max_tokens=4096
@@ -127,12 +127,13 @@ class Chatbot:
             print(f"Error occurred: {e}")
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    from config.settings import HF_TOKEN, OSSAPI_KEY
+    
     load_dotenv()
-    hf_token = load_dotenv("HF_TOKEN")
-    ossapi_key = load_dotenv("OSSAPI_KEY")
 
-    print(hf_token, ossapi_key)
-    chatbot = Chatbot(ossapi_key, hf_token)
+    print(HF_TOKEN, OSSAPI_KEY)
+    chatbot = Chatbot(OSSAPI_KEY, HF_TOKEN)
     print("Test creating chatbot")
 
     print(chatbot.chat("hello"))

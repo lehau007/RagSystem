@@ -1,11 +1,8 @@
-# Import ST
-from ChatBot import Chatbot
-from dotenv import load_dotenv
+from core.chatbot import Chatbot
+from config.settings import HF_TOKEN, OSSAPI_KEY
+
 if __name__ == "__main__":
-    load_dotenv()
-    hf_token = load_dotenv()
-    ossapi_key = load_dotenv()
-    chatbot = Chatbot(ossapi_key, hf_token)
+    chatbot = Chatbot(OSSAPI_KEY, HF_TOKEN)
 
     while True:
         user_input = input("Enter a prompt and # if you want to end: ")

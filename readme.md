@@ -1,143 +1,106 @@
-# 🔎 RagSystem
+# RAG System Chatbot
 
-<p align="left">
-  <img src="https://img.shields.io/badge/RAG-Workflow-8A2BE2?style=for-the-badge" alt="RAG Workflow">
-  <img src="https://img.shields.io/badge/LLM-Tool%20Use-00A39B?style=for-the-badge" alt="LLM Tool Use">
-  <img src="https://img.shields.io/badge/Retrieval-Top--k-FF8C00?style=for-the-badge" alt="Retrieval">
-  <img src="https://img.shields.io/badge/Embeddings-Vector-228B22?style=for-the-badge" alt="Embeddings">
-  <a href="https://fastapi.tiangolo.com/">
-    <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-  </a>
-</p>
+This project is a Retrieval-Augmented Generation (RAG) chatbot that can answer questions based on a provided set of documents. It uses a language model that can decide whether to retrieve relevant context from the documents to answer a user's query.
 
-Retrieval-Augmented Generation (RAG) workflow from document processing to context retrieval and response generation. The model can decide to use tools when appropriate.
+The project is structured to be scalable and maintainable, with a clear separation between the core logic, the API, and the data processing scripts.
 
-## Table of Contents
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [Demo](#demo)
-- [Configuration](#configuration)
-- [Notes and Limitations](#notes-and-limitations)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
+## Project Structure
 
-## Overview
-RagSystem provides an end-to-end pipeline:
-1. Ingest and preprocess documents.
-2. Split and embed text into vector representations.
-3. Index embeddings for fast retrieval.
-4. Retrieve relevant context at query time.
-5. Use an LLM to generate grounded answers, with the option for the model to invoke tools when needed.
-
-This setup helps reduce hallucinations and improves answer quality by grounding responses in your own data.
-
-## Features
-- Document ingestion and preprocessing (PDF, text, and other common formats)
-- Chunking and embedding for scalable retrieval
-- Pluggable vector index/backends
-- Context-aware generation (RAG loop)
-- Tool-use decision making by the model when appropriate
-- Simple configuration via environment variables
-- Create local API for transfering data with other Applications.
-
-## Architecture
-High-level flow:
-- Data ingestion: Load documents and normalize text
-- Chunking: Split content into manageable segments
-- Embedding: Convert chunks to vectors using an embedding model
-- Indexing: Store vectors in a vector database or in-memory index
-- Retrieval: Fetch top-k relevant chunks per query
-- Generation: Compose a prompt with retrieved context for the LLM
-- Tool-use: Allow the model to decide whether to call tools (e.g., search, calculators, APIs) to improve answers
+```
+.
+├── api/
+│   └── main.py           # FastAPI application
+├── config/
+│   └── settings.py       # Configuration for paths, models, and API keys
+├── core/
+│   ├── chatbot.py        # Core chatbot logic
+│   └── retriever.py      # Document retrieval logic
+├── data/
+│   ├── documents/        # Raw PDF documents
+│   └── vector_store/     # Stored vector database and chunked documents
+├── scripts/
+│   └── preprocess.py     # Data processing and vector store creation
+├── tests/
+│   ├── test_api.py       # Tests for the API
+│   └── test_chatbot.py   # Tests for the chatbot logic
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── run_cli_chat.py       # Script for command-line interaction
+```
 
 ## Getting Started
 
-### Prerequisites
-- Python 3.10+ recommended
-- Optionally, API keys for your chosen LLM or embedding providers
+### 1. Installation
 
-### Installation
-`requirements.txt`, install dependencies with:
+First, clone the repository and install the required dependencies from `requirements.txt`:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+git clone <your-repository-url>
+cd RagSystem
 pip install -r requirements.txt
 ```
 
+### 2. Configuration
+
+The project uses a `.env` file to manage secret keys.
+
+1.  Create a file named `.env` in the root of the project.
+2.  Add your API keys to the `.env` file. The project requires keys for Hugging Face (`HF_TOKEN`) and an OpenAI-compatible service (`OSSAPI_KEY`).
+
+    ```
+    HF_TOKEN="your_hugging_face_token_here"
+    OSSAPI_KEY="your_oss_api_key_here"
+    ```
+
+### 3. Add Documents
+
+Place the PDF documents you want the chatbot to use in the `data/documents/` directory.
+
+### 4. Process Documents
+
+Before running the chatbot, you need to process the documents and create the vector store. Run the preprocessing script:
+
+```bash
+python -m scripts.preprocess
+```
+
+This script will:
+- Read the documents from `data/documents/`.
+- Chunk the documents into smaller pieces.
+- Create embeddings for the chunks.
+- Save the chunked documents and the FAISS vector store in `data/vector_store/`.
+
 ## Usage
 
-Minimal example illustrating a typical RAG loop (adapt to your code):
+You can interact with the chatbot in two ways:
 
-```python
-# 1) Load and split documents
-docs = load_documents("path/to/your/docs")          # implement or use a loader
-chunks = split_documents(docs, chunk_size=800, overlap=100)
+### 1. Command-Line Interface (CLI)
 
-# 2) Embed and index
-embeddings = embed_chunks(chunks)                   # e.g., with a chosen embedding model
-index = build_index(embeddings, metadata=chunks)    # e.g., FAISS/Chroma/other
+To chat with the bot directly in your terminal, run:
 
-# 3) Ask questions
-query = "What does the policy say about data retention?"
-retrieved = index.search(query, top_k=5)
-
-# 4) Let the model decide to use tools or not
-answer = llm_generate(
-    query=query,
-    context=retrieved,
-    tools=[/* optional tools you expose to the model */],
-    allow_tool_use=True
-)
-
-print(answer)
+```bash
+python run_cli_chat.py
 ```
 
-Tips:
-- Keep chunks small enough for accurate retrieval but large enough to preserve context.
-- Use consistent text normalization to improve recall.
-- Track metadata (source path, page number) alongside chunks for citations.
+### 2. FastAPI Application
 
-## Demo
+To run the application as a web service, use Uvicorn:
 
-Here is a conversation demo from the project:
-![Conversation Demo](DemoImages/conversation.png)
-
-## Configuration
-
-Set environment variables (create a `.env` if you prefer):
-- OPENAI_API_KEY or ANTHROPIC_API_KEY (or other LLM provider keys)
-- EMBEDDING_MODEL, LLM_MODEL (if configurable)
-- VECTOR_STORE (e.g., faiss, chroma), VECTOR_STORE_PATH (if applicable)
-- Any additional tool-related keys (e.g., SEARCH_API_KEY)
-
-Example `.env`:
-```
-OPENAI_API_KEY=your_key_here
-EMBEDDING_MODEL=text-embedding-3-large
-LLM_MODEL=gpt-4o
-VECTOR_STORE=faiss
+```bash
+uvicorn api.main:app --reload
 ```
 
-## Notes and Limitations
-- RAG quality depends heavily on document quality, chunking strategy, and embedding model choice.
-- Grounding reduces but does not eliminate hallucinations; always validate answers for critical domains.
-- Tool-use can improve answers but may introduce latency and complexity—enable it only when it adds value.
+The API will be available at `http://127.0.0.1:8000`. You can send a POST request to the `/chat` endpoint to interact with the chatbot.
 
-## Roadmap
-- Add evaluation scripts for retrieval and answer quality
-- Add citation highlighting in generated answers
-- Add optional reranking models for improved retrieval
-- Provide reference implementations for multiple vector stores
-- Add streaming and function-calling examples
+You can access the interactive API documentation at `http://127.0.0.1:8000/docs`.
 
-## Contributing
-Contributions are welcome! Please:
-- Open an issue to discuss proposed changes
-- Submit focused pull requests with clear descriptions
+## Running Tests
 
-## License
-Apache-2.0
+The project includes a suite of tests to ensure the chatbot and API are working correctly. To run the tests, use `pytest`:
+
+```bash
+pytest
+```
+
+This will automatically discover and run the tests in the `tests/` directory.

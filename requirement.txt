@@ -1,9 +1,19 @@
-!pip install openai
-!pip install langchain==1.0.1 langchain-community unstructured faiss-cpu
-!pip install sentence-transformers
+openai
+langchain==0.1.16
+langchain-community==0.0.34
+langchain-core==0.1.45
+langchain-experimental==0.0.57
+unstructured
+faiss-cpu
+sentence-transformers
 fastapi==0.115.2
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 pytest
 httpx
 python-dotenv
+groq
+google-genai
+rank_bm25
+ragas
+langgraph

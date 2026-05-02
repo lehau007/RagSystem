@@ -1,106 +1,102 @@
-# RAG System Chatbot
+# HUST Academic Regulations - Agentic RAG System v2.0
 
-This project is a Retrieval-Augmented Generation (RAG) chatbot that can answer questions based on a provided set of documents. It uses a language model that can decide whether to retrieve relevant context from the documents to answer a user's query.
+Hệ thống chatbot hỗ trợ tra cứu quy chế học vụ Đại học Bách khoa Hà Nội (HUST), sử dụng framework **Agentic RAG** tiên tiến để xử lý các câu hỏi phức tạp và đa mục tiêu.
 
-The project is structured to be scalable and maintainable, with a clear separation between the core logic, the API, and the data processing scripts.
+## 🚀 Tính năng nổi bật
 
-## Project Structure
+-   **Agentic Framework (LangGraph):** Tự động phân rã câu hỏi phức tạp (Query Decomposition) thành các truy vấn con để tìm kiếm chính xác từng mục tiêu.
+-   **AI-Driven Data Pipeline:** Sử dụng `gemma-3-27b-it` để chuyển đổi PDF sang Markdown tối ưu, bảo toàn cấu trúc bảng biểu và tiêu đề trước khi xử lý.
+-   **Hybrid Search:** Kết hợp tìm kiếm ngữ nghĩa (FAISS Vector) và tìm kiếm từ khóa (BM25) để tối ưu hóa độ chính xác cho các thuật ngữ học thuật.
+-   **Reranking Stage:** Sử dụng Cross-Encoder để xếp hạng lại kết quả, đảm bảo 3-5 đoạn văn bản liên quan nhất được đưa vào ngữ cảnh.
+-   **Semantic Chunking:** Cắt tài liệu dựa trên sự thay đổi ý nghĩa thay vì số lượng ký tự cố định.
+-   **Semantic Caching:** Lưu trữ và nhận diện các câu hỏi tương đồng để phản hồi ngay lập tức, tiết kiệm chi phí API và giảm latency.
+-   **Automated Evaluation:** Tích hợp framework RAGAS với mô hình Gemma-3 để đánh giá tự động chất lượng phản hồi.
 
-```
-.
-├── api/
-│   └── main.py           # FastAPI application
-├── config/
-│   └── settings.py       # Configuration for paths, models, and API keys
-├── core/
-│   ├── chatbot.py        # Core chatbot logic
-│   └── retriever.py      # Document retrieval logic
-├── data/
-│   ├── documents/        # Raw PDF documents
-│   └── vector_store/     # Stored vector database and chunked documents
-├── scripts/
-│   └── preprocess.py     # Data processing and vector store creation
-├── tests/
-│   ├── test_api.py       # Tests for the API
-│   └── test_chatbot.py   # Tests for the chatbot logic
-├── .gitignore
-├── README.md
-├── requirements.txt
-└── run_cli_chat.py       # Script for command-line interaction
-```
+## 🛠 Tech Stack
 
-## Getting Started
+-   **LLM Core:** `openai/gpt-oss-120b` (via Groq Cloud).
+-   **AI Parsing & Eval:** `gemma-3-27b-it` (via Google GenAI).
+-   **Orchestration:** LangChain, LangGraph.
+-   **Vector Database:** FAISS.
+-   **Embeddings:** `google/embeddinggemma-300M` (Sentence Transformers).
+-   **Backend:** FastAPI.
 
-### 1. Installation
+## 📋 Yêu cầu hệ thống
 
-First, clone the repository and install the required dependencies from `requirements.txt`:
+-   Python 3.10+
+-   API Keys:
+    -   `GROQ_API_KEY`: Dùng cho Agent và tổng hợp câu trả lời.
+    -   `GEMINI_API_KEY`: Dùng cho tiền xử lý Markdown và đánh giá RAGAS.
+    -   `HF_TOKEN`: Dùng để tải model Embedding.
 
-```bash
-git clone <your-repository-url>
-cd RagSystem
-pip install -r requirements.txt
-```
+## ⚙️ Cài đặt
 
-### 2. Configuration
-
-The project uses a `.env` file to manage secret keys.
-
-1.  Create a file named `.env` in the root of the project.
-2.  Add your API keys to the `.env` file. The project requires keys for Hugging Face (`HF_TOKEN`) and an OpenAI-compatible service (`OSSAPI_KEY`).
-
-    ```
-    HF_TOKEN="your_hugging_face_token_here"
-    OSSAPI_KEY="your_oss_api_key_here"
+1.  **Clone repository:**
+    ```bash
+    git clone <repository_url>
+    cd RagSystem
     ```
 
-### 3. Add Documents
+2.  **Khởi tạo môi trường ảo và cài đặt thư viện:**
+    ```bash
+    python -m venv .venv
+    .\.venv\Scripts\activate
+    pip install -r requirement.txt
+    ```
 
-Place the PDF documents you want the chatbot to use in the `data/documents/` directory.
+3.  **Cấu hình biến môi trường:**
+    Tạo file `.env` tại thư mục gốc:
+    ```env
+    HF_TOKEN="your_hugging_face_token"
+    GROQ_API_KEY="your_groq_api_key"
+    GEMINI_API_KEY="your_google_gemini_api_key"
+    ```
 
-### 4. Process Documents
+## 📖 Hướng dẫn sử dụng
 
-Before running the chatbot, you need to process the documents and create the vector store. Run the preprocessing script:
-
+### 1. Tiền xử lý dữ liệu (PDF -> Markdown -> Index)
+Đặt các file PDF quy chế vào `data/documents/` và chạy:
 ```bash
 python -m scripts.preprocess
 ```
+*Lưu ý: Quá trình này sử dụng AI để parse Markdown và có cơ chế dừng 15s/batch để tránh giới hạn Rate Limit của Free Tier.*
 
-This script will:
-- Read the documents from `data/documents/`.
-- Chunk the documents into smaller pieces.
-- Create embeddings for the chunks.
-- Save the chunked documents and the FAISS vector store in `data/vector_store/`.
-
-## Usage
-
-You can interact with the chatbot in two ways:
-
-### 1. Command-Line Interface (CLI)
-
-To chat with the bot directly in your terminal, run:
-
+### 2. Chạy Chatbot (CLI Mode)
+Giao diện dòng lệnh tương tác trực tiếp:
 ```bash
 python run_cli_chat.py
 ```
 
-### 2. FastAPI Application
-
-To run the application as a web service, use Uvicorn:
-
+### 3. Chạy Web API (FastAPI)
+Khởi chạy server API cho ứng dụng:
 ```bash
 uvicorn api.main:app --reload
 ```
+Tài liệu API tại: `http://127.0.0.1:8000/docs`
 
-The API will be available at `http://127.0.0.1:8000`. You can send a POST request to the `/chat` endpoint to interact with the chatbot.
-
-You can access the interactive API documentation at `http://127.0.0.1:8000/docs`.
-
-## Running Tests
-
-The project includes a suite of tests to ensure the chatbot and API are working correctly. To run the tests, use `pytest`:
-
+### 4. Đánh giá hệ thống (RAGAS)
+Chạy quy trình đánh giá tự động:
 ```bash
-pytest
+python -m scripts.evaluate
 ```
 
-This will automatically discover and run the tests in the `tests/` directory.
+## 📂 Cấu trúc dự án
+
+```text
+├── api/              # FastAPI implementation
+├── config/           # Centralized settings & keys
+├── core/
+│   ├── cache.py      # Semantic Caching logic
+│   ├── chatbot.py    # Agentic flow (LangGraph)
+│   └── retriever.py  # Hybrid search & Reranking
+├── data/
+│   ├── documents/    # Raw PDF files
+│   └── vector_store/ # FAISS, BM25, and Cache indexes
+├── scripts/
+│   ├── preprocess.py # Data pipeline (PDF to Markdown)
+│   └── evaluate.py   # RAGAS evaluation script
+└── run_cli_chat.py   # CLI entry point
+```
+
+## 📜 Giấy phép
+Dự án được phát triển phục vụ mục đích học tập và nghiên cứu tra cứu quy chế học vụ HUST.

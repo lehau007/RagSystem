@@ -1,162 +1,131 @@
 import os
 import json
 import re
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
+import pickle
+import time
 from langchain_community.document_loaders import PyPDFLoader
-from config.settings import DOCUMENTS_PATH, CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, EMBEDDING_MODEL, HF_TOKEN
+from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 from sentence_transformers import SentenceTransformer
+from langchain_experimental.text_splitter import SemanticChunker
+from rank_bm25 import BM25Okapi
+from google import genai
 
-# Load all documents from the documents directory
-docs = []
-for doc_file in os.listdir(DOCUMENTS_PATH):
-    if doc_file.endswith(".pdf"):
-        loader = PyPDFLoader(os.path.join(DOCUMENTS_PATH, doc_file))
-        docs.extend(loader.load())
-print(f"Loaded {len(docs)} pages from {len(os.listdir(DOCUMENTS_PATH))} documents")
-
-
-"""" Format text """
-def format_string(text):
-    """
-    Remove excessive spaces and newlines while preserving paragraph breaks.
-    """
-    import re
-    
-    # Normalize line endings
-    text = text.replace('\r\n', '\n').replace('\r', '\n')
-    
-    # Replace multiple consecutive spaces with single space
-    result = re.sub(r' {2,}', ' ', text)
-    
-    # Replace 3+ newlines with double newline (preserve paragraphs)
-    result = re.sub(r'\n{3,}', '\n\n', result)
-    
-    return result
-
-for i in range(len(docs)):
-    docs[i].page_content = format_string(docs[i].page_content)
-print(len(docs), "Formatted")
-
-position_to_metadata = []
-full_text = ""
-current_position = 0
-
-for doc in docs:
-    page_content = doc.page_content
-    page_length = len(page_content)
-    
-    position_to_metadata.append({
-        "start": current_position,
-        "end": current_position + page_length,
-        "metadata": doc.metadata
-    })
-    
-    full_text += page_content + "\n"
-    current_position += page_length + 1  # +1 for the newline
-
-header_pattern = re.compile(
-    r"ABCXYZGHL\s+\d+"
+from config.settings import (
+    DOCUMENTS_PATH, CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, 
+    BM25_INDEX_PATH, EMBEDDING_MODEL, HF_TOKEN, GEMINI_API_KEY
 )
 
-def get_page_metadata(position):
-    """Get the original page metadata for a given text position"""
-    for mapping in position_to_metadata:
-        if mapping["start"] <= position < mapping["end"]:
-            return mapping["metadata"]
-    return position_to_metadata[-1]["metadata"]  # Default to last page
+# 1. Hàm đọc và chuẩn hóa cơ bản
+def load_and_clean_pdf(file_path):
+    loader = PyPDFLoader(file_path)
+    docs = loader.load()
+    for doc in docs:
+        # Xoá khoảng trắng thừa, chuẩn hóa xuống dòng
+        text = doc.page_content.replace('\r\n', '\n').replace('\r', '\n')
+        doc.page_content = re.sub(r' {2,}', ' ', text)
+    return docs
 
-structured_docs = []
-headers = list(header_pattern.finditer(full_text))
-
-if not headers:
-    structured_docs.append(
-        Document(
-            page_content=full_text, 
-            metadata={
-                **docs[0].metadata,
-                "header": "No Header",
-                "page_range": f"1-{len(docs)}"
-            }
-        )
+# 2. Hàm gọi AI để chuyển đổi sang Markdown (Batching)
+def convert_to_markdown_with_ai(pages, batch_size=3):
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    full_markdown = ""
+    
+    system_instruction = (
+        "Bạn là một trợ lý chuyên xử lý văn bản quy chế học vụ. "
+        "Hãy chuyển đổi phần văn bản PDF thô sau đây thành định dạng Markdown chuẩn xác. "
+        "Giữ nguyên cấu trúc các Chương, Điều, khoản, điểm, danh sách và bảng biểu. "
+        "Tuyệt đối không thêm lời chào, không bình luận, chỉ trả về nội dung Markdown."
     )
-else:
-    for i, match in enumerate(headers):
-        start = match.start()
-        end = headers[i + 1].start() if i + 1 < len(headers) else len(full_text)
-        chunk_text = full_text[start:end].strip()
+
+    print(f"Bắt đầu chuyển đổi {len(pages)} trang sang Markdown (Batch size: {batch_size})...")
+    for i in range(0, len(pages), batch_size):
+        batch_pages = pages[i:i+batch_size]
+        batch_text = "\n".join([p.page_content for p in batch_pages])
         
-        # Get metadata from the start position
-        start_metadata = get_page_metadata(start)
-        end_metadata = get_page_metadata(end - 1)
-        
-        # Determine page range
-        start_page = start_metadata.get("page", 0)
-        end_page = end_metadata.get("page", 0)
-        page_range = f"{start_page}" if start_page == end_page else f"{start_page}-{end_page}"
-        
-        structured_docs.append(
-            Document(
-                page_content=chunk_text,
-                metadata={
-                    **start_metadata,  # Keep original metadata
-                    "header": match.group(0),
-                    "page_range": page_range,
-                    "start_page": start_page,
-                    "end_page": end_page
-                }
+        print(f"Đang xử lý batch trang {i+1} đến {min(i+batch_size, len(pages))}...")
+        try:
+            response = client.models.generate_content(
+                model='gemma-3-27b-it', # Sử dụng đúng model gemma-3 như yêu cầu
+                contents=f"{system_instruction}\n\nNội dung thô:\n{batch_text}"
             )
-        )
+            full_markdown += response.text + "\n\n"
+            time.sleep(15) # Nghỉ 15 giây để tránh lỗi 429 trên Free Tier
+        except Exception as e:
+            print(f"Lỗi khi xử lý batch {i+1}-{min(i+batch_size, len(pages))}: {e}")
+            # Fallback: Nếu lỗi, lưu text thô của batch đó
+            full_markdown += batch_text + "\n\n"
+            
+    return full_markdown
 
-print(f"Total structured docs: {len(structured_docs)}")
-
-
-""" Split into chunks """
-splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-chunked_docs = splitter.split_documents(structured_docs)
-
-def save_chunked_docs(chunked_docs, filepath=CHUNKED_DOCS_PATH):
-    """Save chunked documents to JSON file"""
-    docs_data = []
-    for doc in chunked_docs:
-        docs_data.append({
-            "page_content": doc.page_content,
-            "metadata": doc.metadata
-        })
-    
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(docs_data, f, ensure_ascii=False, indent=2)
-    
-    print(f"Saved {len(chunked_docs)} chunks to {filepath}")
-
-# Save the chunked documents
-save_chunked_docs(chunked_docs)
-
-print(f"Final chunks: {len(chunked_docs)}")
-
-
-""" Embedding by FAISS """
-model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=HF_TOKEN)
-# Create a wrapper so it matches LangChain's expected API
+# Embeddings Wrapper
 class SentenceTransformerEmbeddings(Embeddings):
     def __init__(self, model):
         self.model = model
-    
     def embed_documents(self, texts):
         return self.model.encode(texts, show_progress_bar=False).tolist()
-    
     def embed_query(self, text):
         return self.model.encode([text], show_progress_bar=False)[0].tolist()
 
-embedder = SentenceTransformerEmbeddings(model)
+if __name__ == "__main__":
+    print("--- BẮT ĐẦU PIPELINE TIỀN XỬ LÝ (MODEL: GEMMA-3) ---")
+    
+    # A. Load Documents
+    all_markdown_docs = []
+    if not os.path.exists(DOCUMENTS_PATH):
+        print(f"Lỗi: Thư mục {DOCUMENTS_PATH} không tồn tại.")
+    else:
+        pdf_files = [f for f in os.listdir(DOCUMENTS_PATH) if f.endswith(".pdf")]
+        if not pdf_files:
+            print("Không tìm thấy file PDF nào trong thư mục documents.")
+        else:
+            for doc_file in pdf_files:
+                file_path = os.path.join(DOCUMENTS_PATH, doc_file)
+                print(f"Đang đọc file: {doc_file}")
+                raw_pages = load_and_clean_pdf(file_path)
+                
+                # B. AI-driven Markdown Conversion
+                markdown_content = convert_to_markdown_with_ai(raw_pages)
+                
+                # Đóng gói thành Document
+                all_markdown_docs.append(Document(
+                    page_content=markdown_content,
+                    metadata={"source": doc_file}
+                ))
 
-vectorstore = FAISS.from_documents(chunked_docs, embedder)
-print("Vector DB created with", vectorstore.index.ntotal, "documents")
+    if not all_markdown_docs:
+        print("Không có dữ liệu để xử lý.")
+    else:
+        # C. Semantic Chunking
+        print("\nKhởi tạo model Embedding cho Semantic Chunking...")
+        model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=HF_TOKEN)
+        embedder = SentenceTransformerEmbeddings(model)
+        
+        print("Đang cắt văn bản theo ngữ nghĩa (Semantic Chunking)...")
+        text_splitter = SemanticChunker(embedder)
+        chunked_docs = text_splitter.split_documents(all_markdown_docs)
+        print(f"Đã tạo ra {len(chunked_docs)} chunks ngữ nghĩa.")
 
-# Create DB directory if it doesn't exist
-os.makedirs(os.path.dirname(FAISS_INDEX_PATH), exist_ok=True)
-vectorstore.save_local(FAISS_INDEX_PATH)
-print(f"Vector database saved to {FAISS_INDEX_PATH}")
+        # Lưu chunked_docs ra JSON
+        docs_data = [{"page_content": d.page_content, "metadata": d.metadata} for d in chunked_docs]
+        os.makedirs(os.path.dirname(CHUNKED_DOCS_PATH), exist_ok=True)
+        with open(CHUNKED_DOCS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(docs_data, f, ensure_ascii=False, indent=2)
+
+        # D. Tạo FAISS Index (Vector Search)
+        print("\nĐang tạo FAISS Vector Index...")
+        vectorstore = FAISS.from_documents(chunked_docs, embedder)
+        vectorstore.save_local(FAISS_INDEX_PATH)
+        print(f"Đã lưu FAISS tại: {FAISS_INDEX_PATH}")
+
+        # E. Tạo BM25 Index (Keyword Search)
+        print("\nĐang tạo BM25 Keyword Index...")
+        # Simple tokenization for BM25
+        tokenized_corpus = [doc.page_content.lower().split() for doc in chunked_docs]
+        bm25 = BM25Okapi(tokenized_corpus)
+        with open(BM25_INDEX_PATH, 'wb') as f:
+            pickle.dump(bm25, f)
+        print(f"Đã lưu BM25 tại: {BM25_INDEX_PATH}")
+        
+        print("--- HOÀN TẤT PIPELINE ---")

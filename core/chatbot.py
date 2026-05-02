@@ -1,139 +1,154 @@
-from core.retriever import DocumentRetrieval
-from openai import OpenAI
 import json
-from config.settings import CHAT_MODEL
+import os
+from typing import List, TypedDict, Annotated
+from langgraph.graph import StateGraph, END
+from groq import Groq
+from core.retriever import HybridRetriever
+from core.cache import SemanticCache
+from config.settings import GROQ_API_KEY, CHAT_MODEL, HF_TOKEN
 
-class Chatbot:
-    def __init__(self, ossapi_key: str, hf_token: str): 
-        self.client = OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=ossapi_key
+# 1. Định nghĩa State của Graph
+class AgentState(TypedDict):
+    query: str
+    sub_queries: List[str]
+    contexts: List[str]
+    response: str
+    history: List[dict]
+
+class AgenticChatbot:
+    def __init__(self):
+        self.client = Groq(api_key=GROQ_API_KEY)
+        self.retriever = HybridRetriever(HF_TOKEN)
+        self.cache = SemanticCache() # Khởi tạo Semantic Cache
+        self.workflow = self._create_graph()
+
+    def _create_graph(self):
+        workflow = StateGraph(AgentState)
+
+        # Thêm các Node
+        workflow.add_node("decompose", self.decompose_query)
+        workflow.add_node("retrieve", self.retrieve_context)
+        workflow.add_node("synthesize", self.synthesize_response)
+
+        # Thiết lập các cạnh (Edges)
+        workflow.set_entry_point("decompose")
+        workflow.add_edge("decompose", "retrieve")
+        workflow.add_edge("retrieve", "synthesize")
+        workflow.add_edge("synthesize", END)
+
+        return workflow.compile()
+
+    # Node 1: Query Decomposition
+    def decompose_query(self, state: AgentState):
+        query = state["query"]
+        print(f"--- Đang phân rã câu hỏi: {query} ---")
+        
+        prompt = f"""Bạn là một chuyên gia về quy chế học vụ HUST. 
+Nhiệm vụ của bạn là phân tích câu hỏi của người dùng. 
+Nếu đó là câu hỏi phức tạp (đa mục tiêu), hãy chia nó thành tối đa 3 câu hỏi con đơn giản hơn để tìm kiếm chính xác.
+Nếu là câu hỏi đơn giản, chỉ cần trả về một danh sách chứa chính câu hỏi đó.
+
+Trả về kết quả dưới dạng JSON object với key là "sub_queries" chứa mảng các chuỗi.
+VD: {{"sub_queries": ["câu hỏi 1", "câu hỏi 2"]}}
+
+Câu hỏi: {query}"""
+
+        completion = self.client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
         )
-        self.RagTool = DocumentRetrieval(hf_token)
-        self.starting_system_prompt = """You are a knowledgeable assistant"""
+        
+        try:
+            content = completion.choices[0].message.content
+            data = json.loads(content)
+            sub_queries = data.get("sub_queries", [query])
+        except:
+            sub_queries = [query]
 
-        self.rag_system_prompt = """Now, answer"""
+        return {"sub_queries": sub_queries}
 
-        self.conversation_history = []
+    # Node 2: Multi-threaded Retrieval
+    def retrieve_context(self, state: AgentState):
+        sub_queries = state["sub_queries"]
+        all_contexts = []
+        
+        print(f"--- Đang tìm kiếm cho {len(sub_queries)} truy vấn con ---")
+        for sq in sub_queries:
+            docs = self.retriever.retrieve(sq, top_k=5, rerank_top_n=3)
+            for doc in docs:
+                context_str = f"[Nguồn: {doc.metadata.get('source')}]\n{doc.page_content}"
+                if context_str not in all_contexts:
+                    all_contexts.append(context_str)
+        
+        return {"contexts": all_contexts}
 
-        # Update the tool description
-        self.rag_tool_description = {
-            "type": "function",
-            "function": {
-                "name": "rag_tool",
-                "description": "Find the relevant context for user query using keyword matching and semantic similarity search",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string", 
-                            "description": "The user's question or search query"
-                        },
-                        "keywords": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of keywords to search for exact matches"
-                        },
-                        "use_similarity": {
-                            "type": "boolean",
-                            "description": "Whether to use semantic similarity search (default: True)"
-                        },
-                        "k": {
-                            "type": "integer",
-                            "description": "Number of results to return (default: 4)"
-                        }
-                    },
-                    "required": ["query"]
-                }
+    # Node 3: Synthesis
+    def synthesize_response(self, state: AgentState):
+        query = state["query"]
+        contexts = "\n\n---\n\n".join(state["contexts"])
+        
+        print("--- Đang tổng hợp câu trả lời cuối cùng ---")
+        
+        prompt = f"""Dựa trên các thông tin quy chế học vụ HUST dưới đây, hãy trả lời câu hỏi của người dùng một cách chính xác, đầy đủ và chuyên nghiệp. 
+Nếu thông tin không có trong ngữ cảnh, hãy nói rằng bạn không biết, đừng tự bịa ra câu trả lời.
+Cần trích dẫn Điều/Khoản nếu có trong văn bản.
+
+Ngữ cảnh:
+{contexts}
+
+Câu hỏi: {query}"""
+
+        completion = self.client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2
+        )
+        
+        return {"response": completion.choices[0].message.content}
+
+    def chat(self, user_input: str, history: List[dict] = None):
+        # 1. Kiểm tra Semantic Cache trước
+        cached_response = self.cache.get(user_input)
+        if cached_response:
+            return {
+                "response": cached_response,
+                "sub_queries": ["(Từ Cache)"],
+                "num_sources": 0,
+                "from_cache": True
             }
+
+        # 2. Nếu không có cache, chạy luồng Agentic
+        initial_state = {
+            "query": user_input,
+            "sub_queries": [],
+            "contexts": [],
+            "response": "",
+            "history": history or []
         }
         
-    def reset(self):
-        del self.conversation_history 
-        self.conversation_history = []
-
-    def summize_chat_history(self):
-        pass
-
-    def chat(self, user_prompt: str, keywords=None):
+        final_state = self.workflow.invoke(initial_state)
         
-        messages = []
-        messages.extend(self.conversation_history)
-        messages.append({"role": "user", "content": user_prompt})
-        messages.append({"role": "system", "content": self.starting_system_prompt})
+        # 3. Cập nhật kết quả vào Cache cho lần sau
+        self.cache.update(user_input, final_state["response"])
         
-        try: 
-            completion = self.client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=messages,
-                tools=[self.rag_tool_description],
-                tool_choice="auto",
-                temperature=0.7,
-                max_tokens=4096
-            )
-            
-            response_message = completion.choices[0].message
-            if response_message.tool_calls:
-                tool_call = response_message.tool_calls[0]
-                function_args = json.loads(tool_call.function.arguments)
-                
-                # Execute RAG tool
-                rag_result = self.RagTool.process_rag_tool(
-                    query=function_args.get('query', user_prompt),
-                    keywords=function_args.get('keywords', keywords or []),
-                    use_similarity= True, # function_args.get('use_similarity', True),
-                    k=function_args.get('k', 4)
-                )
-                
-                # Send RAG results back to GPT
-                context_to_send = rag_result['context'] if rag_result['num_results'] > 0 else "No relevant documents found."
-
-                messages[-1]["content"] = self.rag_system_prompt # Update system prompt when get content
-                messages.append(response_message)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": "rag_tool",
-                    "content": context_to_send
-                })
-                
-                final_completion = self.client.chat.completions.create(
-                    model=CHAT_MODEL,
-                    messages=messages,
-                    temperature=0.7,
-                    max_tokens=4096
-                )
-
-                assistant_response = final_completion.choices[0].message.content
-                used_rag = True
-                num_sources = rag_result['num_results']
-            else:
-                assistant_response = response_message.content
-                used_rag = False
-                num_sources = 0
-            
-            # Update conversation history
-            self.conversation_history.append({"role": "user", "content": user_prompt})
-            self.conversation_history.append({"role": "assistant", "content": assistant_response})
-            
-            return {
-                "response": assistant_response,
-                "used_rag": used_rag,
-                "num_sources": num_sources,
-                "history_length": len(self.conversation_history)
-            }
-
-        except Exception as e:
-            print(f"Error occurred: {e}")
+        return {
+            "response": final_state["response"],
+            "sub_queries": final_state["sub_queries"],
+            "num_sources": len(final_state["contexts"]),
+            "from_cache": False
+        }
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-    from config.settings import HF_TOKEN, OSSAPI_KEY
+    chatbot = AgenticChatbot()
+    test_query = "Tôi bị cảnh cáo học tập mức 2 thì có được đăng ký học vượt không?"
     
-    load_dotenv()
-
-    print(HF_TOKEN, OSSAPI_KEY)
-    chatbot = Chatbot(OSSAPI_KEY, HF_TOKEN)
-    print("Test creating chatbot")
-
-    print(chatbot.chat("hello"))
+    print("\n--- Lần chạy 1 (Chưa có cache) ---")
+    result1 = chatbot.chat(test_query)
+    print(f"Bot: {result1['response']}")
+    
+    print("\n--- Lần chạy 2 (Kiểm tra cache với câu hỏi tương tự) ---")
+    test_query_2 = "Cảnh cáo học tập mức 2 có được học vượt không?"
+    result2 = chatbot.chat(test_query_2)
+    print(f"Bot: {result2['response']}")
+    print(f"From Cache: {result2.get('from_cache')}")

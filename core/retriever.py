@@ -1,172 +1,116 @@
 import os
+import pickle
+import json
+import numpy as np
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
-from sentence_transformers import SentenceTransformer
-import json
-from config.settings import CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, EMBEDDING_MODEL
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from rank_bm25 import BM25Okapi
+from langchain_core.documents import Document
 
-# For JSON format
-def load_chunked_docs_json(filepath=CHUNKED_DOCS_PATH):
-    """Load chunked documents from JSON file"""
-    from langchain_core.documents import Document
-    
-    with open(filepath, 'r', encoding='utf-8') as f:
-        docs_data = json.load(f)
-    
-    chunked_docs = []
-    for doc_data in docs_data:
-        chunked_docs.append(Document(
-            page_content=doc_data["page_content"],
-            metadata=doc_data["metadata"]
-        ))
-    
-    return chunked_docs
+from config.settings import (
+    CHUNKED_DOCS_PATH, FAISS_INDEX_PATH, BM25_INDEX_PATH, 
+    EMBEDDING_MODEL, HF_TOKEN
+)
 
-def load_vectorstore(hf_token: str):
-    model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=hf_token)
+# Embeddings Wrapper (Giữ nguyên từ preprocess)
+class SentenceTransformerEmbeddings(Embeddings):
+    def __init__(self, model):
+        self.model = model
+    def embed_documents(self, texts):
+        return self.model.encode(texts, show_progress_bar=False).tolist()
+    def embed_query(self, text):
+        return self.model.encode([text], show_progress_bar=False)[0].tolist()
 
-    # Create the same wrapper class
-    class SentenceTransformerEmbeddings(Embeddings):
-        def __init__(self, model):
-            self.model = model
-        
-        def embed_documents(self, texts):
-            return self.model.encode(texts, show_progress_bar=False).tolist()
-        
-        def embed_query(self, text):
-            return self.model.encode([text], show_progress_bar=False)[0].tolist()
-
-    embedder = SentenceTransformerEmbeddings(model)
-
-    # Load the saved vectorstore
-    vectorstore = FAISS.load_local(FAISS_INDEX_PATH, embedder, allow_dangerous_deserialization=True)
-
-    return vectorstore
-
-class DocumentRetrieval:
+class HybridRetriever:
     def __init__(self, hf_token: str):
-        self.vectorstore = load_vectorstore(hf_token)
-        self.chunked_docs = load_chunked_docs_json()
-    
-    def keyword_finding(self, keywords):
-        """
-        Find documents containing specific keywords
+        # 1. Load Embedding Model & FAISS
+        self.model = SentenceTransformer(EMBEDDING_MODEL, use_auth_token=hf_token)
+        self.embedder = SentenceTransformerEmbeddings(self.model)
+        self.vectorstore = FAISS.load_local(
+            FAISS_INDEX_PATH, 
+            self.embedder, 
+            allow_dangerous_deserialization=True
+        )
         
-        Args:
-            keywords: List of keywords to search for
-            chunked_docs: List of document chunks to search in
-        
-        Returns:
-            List of matching documents with scores
-        """
-        chunked_docs = self.chunked_docs
-        results = []
-        
-        for keyword in keywords:
-            keyword_lower = keyword.lower()
+        # 2. Load BM25 Index
+        with open(BM25_INDEX_PATH, 'rb') as f:
+            self.bm25 = pickle.load(f)
             
-            for doc in chunked_docs:
-                content_lower = doc.page_content.lower()
+        # 3. Load Original Chunks (để map kết quả BM25)
+        with open(CHUNKED_DOCS_PATH, 'r', encoding='utf-8') as f:
+            docs_data = json.load(f)
+            self.chunked_docs = [
+                Document(page_content=d["page_content"], metadata=d["metadata"]) 
+                for d in docs_data
+            ]
+            
+        # 4. Load Reranker Model (Cross-Encoder)
+        # Sử dụng model đa ngữ hiệu quả cho reranking
+        self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+
+    def retrieve(self, query: str, top_k: int = 10, rerank_top_n: int = 5):
+        """
+        Luồng: Hybrid Search (FAISS + BM25) -> RRF Fusion -> Reranking
+        """
+        # A. Vector Search (Dense)
+        vector_results = self.vectorstore.similarity_search_with_score(query, k=top_k * 2)
+        
+        # B. BM25 Search (Sparse)
+        tokenized_query = query.lower().split()
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+        top_bm25_indices = np.argsort(bm25_scores)[::-1][:top_k * 2]
+        
+        # C. Fusion (Reciprocal Rank Fusion - đơn giản hóa)
+        # Tạo dictionary để lưu score tổng hợp
+        combined_results = {}
+        
+        # Thêm điểm từ Vector Search
+        for i, (doc, score) in enumerate(vector_results):
+            doc_id = doc.page_content
+            combined_results[doc_id] = {"doc": doc, "score": 1 / (i + 60)}
+            
+        # Thêm/Cộng điểm từ BM25
+        for i, idx in enumerate(top_bm25_indices):
+            doc = self.chunked_docs[idx]
+            doc_id = doc.page_content
+            if doc_id in combined_results:
+                combined_results[doc_id]["score"] += 1 / (i + 60)
+            else:
+                combined_results[doc_id] = {"doc": doc, "score": 1 / (i + 60)}
                 
-                if keyword_lower in content_lower:
-                    # Count occurrences for scoring
-                    count = content_lower.count(keyword_lower)
-                    
-                    # Check if doc already in results
-                    existing = next((r for r in results if r['doc'] == doc), None)
-                    
-                    if existing:
-                        existing['score'] += count
-                        existing['matched_keywords'].append(keyword)
-                    else:
-                        results.append({
-                            'doc': doc,
-                            'score': count,
-                            'matched_keywords': [keyword]
-                        })
+        # Sắp xếp lại theo Fusion Score
+        sorted_results = sorted(
+            combined_results.values(), 
+            key=lambda x: x["score"], 
+            reverse=True
+        )[:top_k]
         
-        # Sort by score (descending)
-        results.sort(key=lambda x: x['score'], reverse=True)
+        final_docs = [item["doc"] for item in sorted_results]
         
-        return results
-
-
-    def similarity_finding(self, query, k=5):
-        """
-        Find documents using semantic similarity search
-        
-        Args:
-            query: Search query string
-            k: Number of results to return
-            vectorstore: FAISS vector store
-        
-        Returns:
-            List of similar documents
-        """
-
-        results = self.vectorstore.similarity_search(query, k=k)
-        return results
-
-
-    def process_rag_tool(self,query, keywords=None, use_similarity=True, k=4):
-        """
-        Combined RAG tool that searches using both keywords and semantic similarity
-        
-        Args:
-            query: User's search query
-            keywords: Optional list of keywords for exact matching
-            use_similarity: Whether to use semantic similarity search
-            k: Number of results to return
-        
-        Returns:
-            Dictionary with combined results and context
-        """
-        all_results = []
-        
-        # 1. Keyword search if keywords provided
-        if keywords and len(keywords) > 0:
-            keyword_results = self.keyword_finding(keywords)
-            for item in keyword_results[:k]:
-                all_results.append({
-                    'document': item['doc'],
-                    'source': 'keyword',
-                    'score': item['score'],
-                    'matched_keywords': item['matched_keywords']
-                })
-        
-        # 2. Similarity search
-        if use_similarity:
-            similarity_results = self.similarity_finding(query, k=k)
-            for doc in similarity_results:
-                # Avoid duplicates
-                if not any(r['document'] == doc for r in all_results):
-                    all_results.append({
-                        'document': doc,
-                        'source': 'similarity',
-                        'score': None,
-                        'matched_keywords': []
-                    })
-        
-        # 3. Combine and format context
-        context_parts = []
-        for i, result in enumerate(all_results[:k]):
-            doc = result['document']
-            source_info = f"[Source: {result['source']}"
-            if result['matched_keywords']:
-                source_info += f", Keywords: {', '.join(result['matched_keywords'])}"
-            source_info += f", Page: {doc.metadata.get('page', 'N/A')}]"
+        # D. Reranking (Cross-Encoder)
+        if rerank_top_n > 0 and final_docs:
+            print(f"--- Đang Reranking {len(final_docs)} kết quả ---")
+            pairs = [[query, doc.page_content] for doc in final_docs]
+            rerank_scores = self.reranker.predict(pairs)
             
-            context_parts.append(f"{source_info}\n{doc.page_content}")
-        
-        return {
-            'context': '\n\n---\n\n'.join(context_parts),
-            'num_results': len(all_results[:k]),
-            'results': all_results[:k]
-        }
+            # Sắp xếp lại final_docs dựa trên rerank_scores
+            reranked_indices = np.argsort(rerank_scores)[::-1]
+            final_docs = [final_docs[i] for i in reranked_indices[:rerank_top_n]]
+            
+        return final_docs
 
 if __name__ == "__main__":
-    print("Test load RagTool")
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    test = DocumentRetrieval()
-    result = test.process_rag_tool("hau hau", keywords=["hau", "hau"], use_similarity=True, k=4)
-    print(result["context"])
+    token = os.getenv("HF_TOKEN")
+    retriever = HybridRetriever(token)
+    
+    query = "Điều kiện để đăng ký học vượt là gì?"
+    results = retriever.retrieve(query)
+    
+    print(f"\nKết quả cho truy vấn: '{query}'")
+    for i, doc in enumerate(results):
+        print(f"\n[{i+1}] Nguồn: {doc.metadata.get('source')}")
+        print(f"Nội dung: {doc.page_content[:200]}...")

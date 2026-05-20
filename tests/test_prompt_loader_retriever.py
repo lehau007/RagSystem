@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from dataclasses import dataclass
 
 import numpy as np
 from langchain_core.documents import Document
@@ -14,6 +15,17 @@ class FakeBM25:
 
     def get_scores(self, _tokenized_query):
         return self.scores
+
+
+@dataclass
+class RetrieverTestContext:
+    instance: retriever.HybridRetriever
+    fake_model: MagicMock
+    fake_vectorstore: MagicMock
+    fake_reranker: MagicMock
+    mock_sentence_transformer: MagicMock
+    mock_load_local: MagicMock
+    mock_cross_encoder: MagicMock
 
 
 def test_load_prompt_from_hub_when_enabled(monkeypatch):
@@ -49,7 +61,7 @@ def test_load_prompt_reads_local_yaml_when_langsmith_disabled(tmp_path, monkeypa
     assert template == "Local only template"
 
 
-def _build_retriever(tmp_path, monkeypatch):
+def build_test_retriever(tmp_path, monkeypatch):
     bm25_path = tmp_path / "bm25.pkl"
     bm25_path.write_bytes(b"placeholder")
 
@@ -86,13 +98,23 @@ def _build_retriever(tmp_path, monkeypatch):
         [2.0 if "vector-only" in pair[1] else 1.0 if "dense-1" in pair[1] else 0.5 for pair in pairs]
     )
 
-    with patch.object(retriever, "SentenceTransformer", return_value=fake_model) as mock_sentence_transformer, \
-         patch.object(retriever.FAISS, "load_local", return_value=fake_vectorstore) as mock_load_local, \
-         patch.object(retriever, "CrossEncoder", return_value=fake_reranker) as mock_cross_encoder, \
-         patch.object(retriever.pickle, "load", return_value=FakeBM25([0.8, 0.9, 0.1])):
+    with (
+        patch.object(retriever, "SentenceTransformer", return_value=fake_model) as mock_sentence_transformer,
+        patch.object(retriever.FAISS, "load_local", return_value=fake_vectorstore) as mock_load_local,
+        patch.object(retriever, "CrossEncoder", return_value=fake_reranker) as mock_cross_encoder,
+        patch.object(retriever.pickle, "load", return_value=FakeBM25([0.8, 0.9, 0.1])),
+    ):
         instance = retriever.HybridRetriever("hf-test-token")
 
-    return instance, fake_model, fake_vectorstore, fake_reranker, mock_sentence_transformer, mock_load_local, mock_cross_encoder
+    return RetrieverTestContext(
+        instance=instance,
+        fake_model=fake_model,
+        fake_vectorstore=fake_vectorstore,
+        fake_reranker=fake_reranker,
+        mock_sentence_transformer=mock_sentence_transformer,
+        mock_load_local=mock_load_local,
+        mock_cross_encoder=mock_cross_encoder,
+    )
 
 
 def test_sentence_transformer_embeddings_wrapper_methods():
@@ -107,31 +129,29 @@ def test_sentence_transformer_embeddings_wrapper_methods():
 
 
 def test_hybrid_retriever_init_loads_dependencies(tmp_path, monkeypatch):
-    instance, _, _, _, mock_sentence_transformer, mock_load_local, mock_cross_encoder = _build_retriever(
-        tmp_path, monkeypatch
-    )
+    ctx = build_test_retriever(tmp_path, monkeypatch)
 
-    assert len(instance.chunked_docs) == 3
-    mock_sentence_transformer.assert_called_once_with("fake-model", use_auth_token="hf-test-token")
-    assert mock_load_local.call_args.kwargs["allow_dangerous_deserialization"] is True
-    mock_cross_encoder.assert_called_once_with("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    assert len(ctx.instance.chunked_docs) == 3
+    ctx.mock_sentence_transformer.assert_called_once_with("fake-model", use_auth_token="hf-test-token")
+    assert ctx.mock_load_local.call_args.kwargs["allow_dangerous_deserialization"] is True
+    ctx.mock_cross_encoder.assert_called_once_with("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
 def test_hybrid_retriever_retrieve_fuses_and_reranks_results(tmp_path, monkeypatch):
-    instance, _, fake_vectorstore, fake_reranker, _, _, _ = _build_retriever(tmp_path, monkeypatch)
+    ctx = build_test_retriever(tmp_path, monkeypatch)
 
-    results = instance.retrieve("which doc", top_k=3, rerank_top_n=2)
+    results = ctx.instance.retrieve("which doc", top_k=3, rerank_top_n=2)
 
-    fake_vectorstore.similarity_search_with_score.assert_called_once_with("which doc", k=6)
-    fake_reranker.predict.assert_called_once()
+    ctx.fake_vectorstore.similarity_search_with_score.assert_called_once_with("which doc", k=6)
+    ctx.fake_reranker.predict.assert_called_once()
     assert len(results) == 2
     assert results[0].page_content == "vector-only"
 
 
 def test_hybrid_retriever_retrieve_skips_rerank_when_disabled(tmp_path, monkeypatch):
-    instance, _, _, fake_reranker, _, _, _ = _build_retriever(tmp_path, monkeypatch)
+    ctx = build_test_retriever(tmp_path, monkeypatch)
 
-    results = instance.retrieve("which doc", top_k=2, rerank_top_n=0)
+    results = ctx.instance.retrieve("which doc", top_k=2, rerank_top_n=0)
 
     assert len(results) == 2
-    fake_reranker.predict.assert_not_called()
+    ctx.fake_reranker.predict.assert_not_called()

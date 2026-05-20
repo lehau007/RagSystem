@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
-app = FastAPI(title="HUST Academic Regulations Agentic RAG") 
+app = FastAPI(title="HUST Academic Regulations Agentic RAG")
 
 # Khởi tạo chatbot duy nhất
 chatbot = AgenticChatbot()

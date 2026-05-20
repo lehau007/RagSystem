@@ -1,5 +1,4 @@
 import os
-import numpy as np
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 from sentence_transformers import SentenceTransformer
@@ -39,19 +38,19 @@ class SemanticCache:
         """Tìm kiếm câu trả lời trong cache"""
         if not self.cache_index:
             return None
-        
+
         # Tìm kiếm 1 kết quả gần nhất kèm score (L2 distance trong FAISS, thấp là gần)
         # Lưu ý: similarity_search_with_score trả về distance. Cần chuyển đổi hoặc dùng threshold phù hợp.
         results = self.cache_index.similarity_search_with_score(query, k=1)
-        
+
         if results:
             doc, score = results[0]
-            # Với FAISS L2 distance, score càng nhỏ càng giống. 
+            # Với FAISS L2 distance, score càng nhỏ càng giống.
             # Một ngưỡng an toàn cho semantic match thường là score < 0.1 - 0.2 tùy model.
             if score < 0.15 and doc.page_content != "init":
                 print(f"--- Cache Hit (Score: {score:.4f}) ---")
                 return doc.metadata.get("response")
-        
+
         return None
 
     def update(self, query: str, response: str):

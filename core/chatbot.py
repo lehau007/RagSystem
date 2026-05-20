@@ -1,6 +1,5 @@
 import json
-import os
-from typing import List, TypedDict, Annotated
+from typing import List, TypedDict
 from langgraph.graph import StateGraph, END
 from groq import Groq
 from core.retriever import HybridRetriever
@@ -43,7 +42,7 @@ class AgenticChatbot:
     def decompose_query(self, state: AgentState):
         query = state["query"]
         print(f"--- Đang phân rã câu hỏi: {query} ---")
-        
+
         template = load_prompt("decompose_query", hub_path="hust-rag/hust-decompose-query")
         prompt = template.format(query=query)
 
@@ -52,12 +51,12 @@ class AgenticChatbot:
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        
+
         try:
             content = completion.choices[0].message.content
             data = json.loads(content)
             sub_queries = data.get("sub_queries", [query])
-        except:
+        except Exception:
             sub_queries = [query]
 
         return {"sub_queries": sub_queries}
@@ -66,7 +65,7 @@ class AgenticChatbot:
     def retrieve_context(self, state: AgentState):
         sub_queries = state["sub_queries"]
         all_contexts = []
-        
+
         print(f"--- Đang tìm kiếm cho {len(sub_queries)} truy vấn con ---")
         for sq in sub_queries:
             docs = self.retriever.retrieve(sq, top_k=5, rerank_top_n=3)
@@ -74,16 +73,16 @@ class AgenticChatbot:
                 context_str = f"[Nguồn: {doc.metadata.get('source')}]\n{doc.page_content}"
                 if context_str not in all_contexts:
                     all_contexts.append(context_str)
-        
+
         return {"contexts": all_contexts}
 
     # Node 3: Synthesis
     def synthesize_response(self, state: AgentState):
         query = state["query"]
         contexts = "\n\n---\n\n".join(state["contexts"])
-        
+
         print("--- Đang tổng hợp câu trả lời cuối cùng ---")
-        
+
         template = load_prompt("synthesize_response", hub_path="hust-rag/hust-synthesize-response")
         prompt = template.format(contexts=contexts, query=query)
 
@@ -92,7 +91,7 @@ class AgenticChatbot:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2
         )
-        
+
         return {"response": completion.choices[0].message.content}
 
     def chat(self, user_input: str, history: List[dict] = None):
@@ -114,12 +113,12 @@ class AgenticChatbot:
             "response": "",
             "history": history or []
         }
-        
+
         final_state = self.workflow.invoke(initial_state)
-        
+
         # 3. Cập nhật kết quả vào Cache cho lần sau
         self.cache.update(user_input, final_state["response"])
-        
+
         return {
             "response": final_state["response"],
             "sub_queries": final_state["sub_queries"],
@@ -127,14 +126,14 @@ class AgenticChatbot:
             "from_cache": False
         }
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     chatbot = AgenticChatbot()
     test_query = "Tôi bị cảnh cáo học tập mức 2 thì có được đăng ký học vượt không?"
-    
+
     print("\n--- Lần chạy 1 (Chưa có cache) ---")
     result1 = chatbot.chat(test_query)
     print(f"Bot: {result1['response']}")
-    
+
     print("\n--- Lần chạy 2 (Kiểm tra cache với câu hỏi tương tự) ---")
     test_query_2 = "Cảnh cáo học tập mức 2 có được học vượt không?"
     result2 = chatbot.chat(test_query_2)

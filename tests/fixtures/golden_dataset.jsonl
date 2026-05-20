@@ -1,0 +1,15 @@
+{"question": "Sinh viên không bị cảnh báo học tập có thể đăng ký tối đa bao nhiêu tín chỉ mỗi học kỳ chính?", "expected_answer": "24 tín chỉ", "relevant_articles": ["Điều 10", "Điều 19"], "category": "simple"}
+{"question": "Sinh viên bị cảnh báo học tập mức 3 sẽ bị xử lý như thế nào?", "expected_answer": "buộc thôi học", "relevant_articles": ["Điều 19"], "category": "simple"}
+{"question": "GPA tích lũy từ bao nhiêu trở lên thì được xếp loại Xuất sắc?", "expected_answer": "3,6", "relevant_articles": ["Điều 16"], "category": "simple"}
+{"question": "Một tín chỉ tương đương bao nhiêu giờ học chuẩn?", "expected_answer": "50 giờ", "relevant_articles": ["Điều 6"], "category": "simple"}
+{"question": "Sinh viên chuyển trường có được công nhận tín chỉ không?", "expected_answer": "công nhận", "relevant_articles": ["Điều 14", "Điều 17"], "category": "simple"}
+{"question": "Điều kiện để đăng ký học vượt là gì?", "expected_answer": "không bị cảnh báo", "relevant_articles": ["Điều 19", "Điều 10"], "category": "simple"}
+{"question": "Sinh viên năm mấy thì bắt đầu bị xét cảnh báo học tập?", "expected_answer": "năm thứ hai", "relevant_articles": ["Điều 19"], "category": "simple"}
+{"question": "Điều kiện tốt nghiệp và thời hạn cấp bằng là gì?", "expected_answer": "tốt nghiệp", "relevant_articles": ["Điều 18", "Điều 20"], "category": "multi_part"}
+{"question": "Sinh viên bị cảnh báo mức 2 bị giới hạn số tín chỉ như thế nào và điều kiện giảm mức cảnh báo là gì?", "expected_answer": "tín chỉ", "relevant_articles": ["Điều 19", "Điều 10"], "category": "multi_part"}
+{"question": "Điều kiện để được mở lớp học rút gọn là gì và sinh viên phải học từ năm mấy?", "expected_answer": "rút gọn", "relevant_articles": ["Điều 10"], "category": "multi_part"}
+{"question": "Học kỳ hè có áp dụng cảnh báo học tập không và được đăng ký tối đa bao nhiêu tín chỉ?", "expected_answer": "tín chỉ", "relevant_articles": ["Điều 10", "Điều 19"], "category": "multi_part"}
+{"question": "Sinh viên có thể rút môn sau thời gian điều chỉnh không và điểm được tính thế nào?", "expected_answer": "điểm", "relevant_articles": ["Điều 10"], "category": "multi_part"}
+{"question": "Học phí chương trình kỹ sư là bao nhiêu?", "expected_answer": "không", "relevant_articles": [], "category": "out_of_scope"}
+{"question": "Thủ tục xin việc sau khi tốt nghiệp HUST là gì?", "expected_answer": "không", "relevant_articles": [], "category": "out_of_scope"}
+{"question": "HUST có ký túc xá không?", "expected_answer": "không", "relevant_articles": [], "category": "out_of_scope"}

@@ -1,0 +1,11 @@
+name: hust-synthesize-response
+version: "1.0"
+template: |
+  Dựa trên các thông tin quy chế học vụ HUST dưới đây, hãy trả lời câu hỏi của người dùng một cách chính xác, đầy đủ và chuyên nghiệp.
+  Nếu thông tin không có trong ngữ cảnh, hãy nói rằng bạn không biết, đừng tự bịa ra câu trả lời.
+  Cần trích dẫn Điều/Khoản nếu có trong văn bản.
+
+  Ngữ cảnh:
+  {contexts}
+
+  Câu hỏi: {query}

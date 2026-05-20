@@ -1,85 +1,73 @@
+import importlib
 import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
-
-# It's important to patch the chatbot before it's imported by the api.main
-# We create a mock Chatbot that can be controlled in the tests
-mock_chatbot_instance = MagicMock()
-
-def get_mock_chatbot(*args, **kwargs):
-    return mock_chatbot_instance
-
-# Patch the Chatbot class in the core.chatbot module
-# This will affect the instance created in api.main
-patcher = patch('core.chatbot.Chatbot', new=get_mock_chatbot)
-patcher.start()
-
-# Now we can import the app
-from api.main import app
-
-# Stop the patcher after the app is imported and set up
-# to avoid it affecting other tests if this file is imported elsewhere.
-patcher.stop()
+from unittest.mock import MagicMock, patch
 
 
 @pytest.fixture(scope="module")
 def client():
-    """Create a TestClient instance for the API."""
-    with TestClient(app) as c:
-        yield c
+    """
+    TestClient with AgenticChatbot fully mocked.
+    api.main instantiates AgenticChatbot at module load time, so we must
+    patch before importing (or reloading) the module.
+    """
+    mock_instance = MagicMock()
 
-def test_chat_endpoint_success(client):
-    """Test the /chat endpoint with a successful response."""
-    # Configure the mock to return a specific value
-    mock_response = {
-        "response": "This is a mock response.",
-        "used_rag": False,
-        "num_sources": 0,
-        "history_length": 2
+    with patch("core.chatbot.SemanticCache"), \
+         patch("core.chatbot.HybridRetriever"), \
+         patch("core.chatbot.Groq"), \
+         patch("core.chatbot.load_prompt", return_value="t {query}"), \
+         patch("core.chatbot.AgenticChatbot", return_value=mock_instance):
+        import api.main as m
+        importlib.reload(m)  # re-execute module-level chatbot = AgenticChatbot() with mock in place
+        from fastapi.testclient import TestClient
+        with TestClient(m.app) as c:
+            c.mock = mock_instance
+            yield c
+
+
+def test_chat_success(client):
+    client.mock.chat.return_value = {
+        "response": "Sinh viên được đăng ký tối đa 24 tín chỉ.",
+        "sub_queries": ["sub question"],
+        "num_sources": 3,
+        "from_cache": False,
     }
-    mock_chatbot_instance.chat.return_value = mock_response
-    
-    # Send a request to the API
-    response = client.post("/chat", params={"user_input": "Hello"})
-    
-    # Assertions
-    assert response.status_code == 200
-    assert response.json() == mock_response
-    # Verify that the chat method was called with the correct argument
-    mock_chatbot_instance.chat.assert_called_with("Hello")
+    resp = client.post("/chat", json={"user_input": "Hỏi về tín chỉ"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["response"] == "Sinh viên được đăng ký tối đa 24 tín chỉ."
+    assert data["num_sources"] == 3
+    assert data["from_cache"] is False
 
-def test_chat_endpoint_empty_input(client):
-    """Test the /chat endpoint with empty user input."""
-    mock_response = {
-        "response": "Empty input received.",
-        "used_rag": False,
+
+def test_chat_from_cache(client):
+    client.mock.chat.return_value = {
+        "response": "Cached answer",
+        "sub_queries": ["(Từ Cache)"],
         "num_sources": 0,
-        "history_length": 2
+        "from_cache": True,
     }
-    mock_chatbot_instance.chat.return_value = mock_response
+    resp = client.post("/chat", json={"user_input": "Repeated question"})
+    assert resp.status_code == 200
+    assert resp.json()["from_cache"] is True
 
-    response = client.post("/chat", params={"user_input": ""})
-    
-    assert response.status_code == 200
-    assert response.json() == mock_response
-    mock_chatbot_instance.chat.assert_called_with("")
 
-def test_chat_endpoint_internal_error(client):
-    """Test the /chat endpoint when the chatbot raises an exception."""
-    # Configure the mock to raise an exception
-    error_message = "Internal chatbot error"
-    mock_chatbot_instance.chat.side_effect = Exception(error_message)
-    
-    # It's generally better for the endpoint to handle the exception
-    # and return a proper HTTP error. For this example, we assume
-    # FastAPI's default exception handling will catch it.
-    # A more robust implementation would have a try-except block in the endpoint.
-    
-    # In a real app, you'd expect a 500 error.
-    # The default TestClient behavior might raise the exception directly.
-    with pytest.raises(Exception) as excinfo:
-         client.post("/chat", params={"user_input": "trigger error"})
-    
-    assert error_message in str(excinfo.value)
-    mock_chatbot_instance.chat.assert_called_with("trigger error")
+def test_chat_with_history(client):
+    client.mock.chat.return_value = {
+        "response": "Answer with history context",
+        "sub_queries": ["q"],
+        "num_sources": 1,
+        "from_cache": False,
+    }
+    history = [{"role": "user", "content": "Previous question"}]
+    resp = client.post("/chat", json={"user_input": "Follow-up question", "history": history})
+    assert resp.status_code == 200
+    client.mock.chat.assert_called_with("Follow-up question", history=history)
 
+
+def test_chat_internal_error(client):
+    client.mock.chat.side_effect = Exception("LLM API timeout")
+    resp = client.post("/chat", json={"user_input": "trigger error"})
+    assert resp.status_code == 500
+    assert "LLM API timeout" in resp.json()["detail"]
+    client.mock.chat.side_effect = None  # reset for subsequent tests

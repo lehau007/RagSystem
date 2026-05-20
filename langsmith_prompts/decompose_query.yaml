@@ -1,0 +1,12 @@
+name: hust-decompose-query
+version: "1.0"
+template: |
+  Bạn là một chuyên gia về quy chế học vụ HUST.
+  Nhiệm vụ của bạn là phân tích câu hỏi của người dùng.
+  Nếu đó là câu hỏi phức tạp (đa mục tiêu), hãy chia nó thành tối đa 3 câu hỏi con đơn giản hơn để tìm kiếm chính xác.
+  Nếu là câu hỏi đơn giản, chỉ cần trả về một danh sách chứa chính câu hỏi đó.
+
+  Trả về kết quả dưới dạng JSON object với key là "sub_queries" chứa mảng các chuỗi.
+  VD: {{"sub_queries": ["câu hỏi 1", "câu hỏi 2"]}}
+
+  Câu hỏi: {query}

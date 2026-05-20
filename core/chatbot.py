@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, END
 from groq import Groq
 from core.retriever import HybridRetriever
 from core.cache import SemanticCache
+from core.prompt_loader import load_prompt
 from config.settings import GROQ_API_KEY, CHAT_MODEL, HF_TOKEN
 
 # 1. Định nghĩa State của Graph
@@ -43,15 +44,8 @@ class AgenticChatbot:
         query = state["query"]
         print(f"--- Đang phân rã câu hỏi: {query} ---")
         
-        prompt = f"""Bạn là một chuyên gia về quy chế học vụ HUST. 
-Nhiệm vụ của bạn là phân tích câu hỏi của người dùng. 
-Nếu đó là câu hỏi phức tạp (đa mục tiêu), hãy chia nó thành tối đa 3 câu hỏi con đơn giản hơn để tìm kiếm chính xác.
-Nếu là câu hỏi đơn giản, chỉ cần trả về một danh sách chứa chính câu hỏi đó.
-
-Trả về kết quả dưới dạng JSON object với key là "sub_queries" chứa mảng các chuỗi.
-VD: {{"sub_queries": ["câu hỏi 1", "câu hỏi 2"]}}
-
-Câu hỏi: {query}"""
+        template = load_prompt("decompose_query", hub_path="hust-rag/hust-decompose-query")
+        prompt = template.format(query=query)
 
         completion = self.client.chat.completions.create(
             model=CHAT_MODEL,
@@ -90,14 +84,8 @@ Câu hỏi: {query}"""
         
         print("--- Đang tổng hợp câu trả lời cuối cùng ---")
         
-        prompt = f"""Dựa trên các thông tin quy chế học vụ HUST dưới đây, hãy trả lời câu hỏi của người dùng một cách chính xác, đầy đủ và chuyên nghiệp. 
-Nếu thông tin không có trong ngữ cảnh, hãy nói rằng bạn không biết, đừng tự bịa ra câu trả lời.
-Cần trích dẫn Điều/Khoản nếu có trong văn bản.
-
-Ngữ cảnh:
-{contexts}
-
-Câu hỏi: {query}"""
+        template = load_prompt("synthesize_response", hub_path="hust-rag/hust-synthesize-response")
+        prompt = template.format(contexts=contexts, query=query)
 
         completion = self.client.chat.completions.create(
             model=CHAT_MODEL,

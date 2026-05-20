@@ -17,3 +17,7 @@ google-genai
 rank_bm25
 ragas
 langgraph
+langsmith>=0.1.0
+pyyaml>=6.0
+ruff>=0.4.0
+pytest-cov>=5.0.0

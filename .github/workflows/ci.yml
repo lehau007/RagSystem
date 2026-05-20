@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  GROQ_API_KEY: "test-stub"
+  HF_TOKEN: "test-stub"
+  GEMINI_API_KEY: "test-stub"
+  LANGCHAIN_TRACING_V2: "false"
+  LANGCHAIN_API_KEY: ""
+  LANGCHAIN_PROJECT: "ci-test"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Install ruff
+        run: .venv/bin/pip install ruff
+
+      - name: Run ruff
+        run: .venv/bin/ruff check . --select E,F,W --ignore E501 --exclude scripts/,data/
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache virtual environment
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ hashFiles('requirement.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-venv-
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirement.txt
+
+      - name: Run unit tests with coverage
+        run: |
+          .venv/bin/pytest tests/ \
+            --cov=core \
+            --cov=api \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            -v \
+            --tb=short
